@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 # ================= CONFIG =================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-OLLAMA_MODEL = "qwen2.5-coder:32b"
+OLLAMA_MODEL = "qwen2.5-coder:7b"
 KNOWLEDGE_BASE_DIR = os.getenv("KNOWLEDGE_BASE_DIR", "/app/knowledge_base")
 MAX_TIMEOUT = 3600
 
