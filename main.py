@@ -42,12 +42,11 @@ from aiogram.types import DefaultBotProperties
 
 bot = Bot(
     token=TELEGRAM_BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)  # ✅ fixed
 )
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
-
 
 # -------------------------------------------------
 # INTENT
