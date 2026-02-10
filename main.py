@@ -40,7 +40,10 @@ MAX_TIMEOUT = 300
 # -------------------------------------------------
 from aiogram.types import DefaultBotProperties
 
-bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
+bot = Bot(
+    token=TELEGRAM_BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML
+)
 dp = Dispatcher()
 router = Router()
 dp.include_router(router)
