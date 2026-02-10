@@ -4,7 +4,7 @@ set -e
 
 echo "🚀 Starting MEI MEI..."
 
-OLLAMA_BIN="/usr/local/bin/ollama"
+OLLAMA_MODEL = "qwen2.5-coder:7b"
 
 if [ ! -f "$OLLAMA_BIN" ]; then
   echo "❌ Ollama not found at $OLLAMA_BIN"
