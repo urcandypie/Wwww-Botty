@@ -6,10 +6,9 @@ import json
 import asyncio
 import logging
 from pathlib import Path
-from urllib.parse import urlparse
 
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message
+from aiogram.types import Message, Update
 from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 
@@ -17,7 +16,9 @@ from aiohttp import web
 from playwright.async_api import async_playwright
 
 
-# -------------------- CONFIG --------------------
+# -------------------------------------------------
+# CONFIG
+# -------------------------------------------------
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei-mei")
@@ -34,7 +35,9 @@ Path(KNOWLEDGE_BASE_DIR).mkdir(parents=True, exist_ok=True)
 MAX_TIMEOUT = 300
 
 
-# -------------------- BOT --------------------
+# -------------------------------------------------
+# BOT
+# -------------------------------------------------
 
 bot = Bot(token=TELEGRAM_BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher()
@@ -42,38 +45,49 @@ router = Router()
 dp.include_router(router)
 
 
-# -------------------- UTIL --------------------
+# -------------------------------------------------
+# INTENT
+# -------------------------------------------------
 
-def detect_intent(message: str) -> dict:
+def detect_intent(message: str):
     urls = re.findall(r"https?://[^\s]+", message)
 
     m = message.lower()
 
     if urls:
-        return {"type": "website_analysis", "url": urls[0], "message": message}
+        return {
+            "type": "website_analysis",
+            "url": urls[0],
+            "message": message
+        }
 
-    if any(w in m for w in ["who are you", "about you", "your name"]):
+    if any(x in m for x in ["who are you", "about you", "your name"]):
         return {"type": "introduction"}
 
     return {"type": "general"}
 
 
-# -------------------- OLLAMA --------------------
+# -------------------------------------------------
+# OLLAMA
+# -------------------------------------------------
 
 async def run_ollama(prompt: str, system_prompt: str = "", timeout: int = 180) -> str:
     base_system = """You are MEI MEI created by L1xky.
+
 You are an expert in:
 - API reverse engineering
 - checkout flows
 - browser automation
-- scraping and request chaining.
+- scraping
+- HTTP traffic analysis
+- token and session chaining
 """
 
-    full_prompt = f"{base_system}\n{system_prompt}\n\n{prompt}"
+    final_prompt = f"{base_system}\n{system_prompt}\n\n{prompt}"
 
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ollama", "run", OLLAMA_MODEL, full_prompt,
+            "ollama", "run", OLLAMA_MODEL, final_prompt,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -86,13 +100,16 @@ You are an expert in:
 
         if proc.returncode == 0:
             return out.decode(errors="ignore")
+
         return err.decode(errors="ignore")
 
     except Exception as e:
         return str(e)
 
 
-# -------------------- KNOWLEDGE BASE --------------------
+# -------------------------------------------------
+# KNOWLEDGE BASE
+# -------------------------------------------------
 
 def load_api_summaries() -> list:
     out = []
@@ -115,7 +132,9 @@ def select_relevant_summaries(all_summaries: list) -> str:
     return "\n\n".join(hits[:4])
 
 
-# -------------------- TRAFFIC CAPTURE --------------------
+# -------------------------------------------------
+# TRAFFIC CAPTURE
+# -------------------------------------------------
 
 TRACKING_KEYWORDS = [
     "google", "doubleclick", "facebook", "segment", "sentry",
@@ -140,7 +159,7 @@ def is_interesting_request(req):
     return False
 
 
-async def browser_capture(url: str, max_wait: int = 15000):
+async def browser_capture(url: str, max_wait: int = 12000):
     requests = []
     responses = []
 
@@ -186,7 +205,6 @@ async def browser_capture(url: str, max_wait: int = 15000):
         await page.goto(url, timeout=60000)
         await page.wait_for_timeout(4000)
 
-        # very generic interaction attempt
         try:
             product = await page.query_selector(
                 "a[href*='product'],a[href*='shop'],a[href*='item']"
@@ -239,7 +257,9 @@ def request_to_curl(r):
     return " ".join("'" + p.replace("'", "\\'") + "'" if " " in p else p for p in parts)
 
 
-# -------------------- PROMPT BUILDER --------------------
+# -------------------------------------------------
+# PROMPT
+# -------------------------------------------------
 
 def build_analysis_prompt(url, reqs, resps, experience):
 
@@ -249,20 +269,17 @@ You analyzed a real website using browser automation.
 TARGET:
 {url}
 
-You are given HTTP requests and responses.
-
 Your tasks:
 
-1. Build a CHECKOUT / PURCHASE FLOW CHART
-   (product → cart → checkout → order / payment).
+1. Build a CHECKOUT / PURCHASE FLOW CHART.
 
-2. Detect responses that CREATE:
+2. Identify responses that create:
    - cart_id
    - checkout_id
    - session id
-   - csrf / auth tokens
+   - csrf / auth token
 
-3. Detect which later requests DEPEND on those values.
+3. Identify which requests depend on those values.
 
 4. Build a dependency chain.
 
@@ -270,22 +287,24 @@ Your tasks:
 
 6. Explain main payload fields.
 
-=== FILTERED REQUESTS (as curl) ===
+=== FILTERED REQUESTS (curl) ===
 {chr(10).join(reqs)}
 
 === IMPORTANT JSON RESPONSES ===
 {json.dumps(resps, indent=2)[:12000]}
 
-=== PAST EXPERIENCE FROM OTHER SITES ===
+=== PAST EXPERIENCE ===
 {experience}
 """
 
 
-# -------------------- HANDLERS --------------------
+# -------------------------------------------------
+# HANDLERS
+# -------------------------------------------------
 
 @router.message(CommandStart())
 async def start(m: Message):
-    await m.answer("MEI MEI – advanced API / checkout analyzer.")
+    await m.answer("MEI MEI â advanced API / checkout analyzer.")
 
 
 @router.message(F.text)
@@ -293,12 +312,12 @@ async def handle_message(m: Message):
 
     intent = detect_intent(m.text)
 
-    msg = await m.answer("<i>Working… this may take a few minutes.</i>")
+    msg = await m.answer("<i>Workingâ¦ this may take a few minutes.</i>")
 
     try:
 
         if intent["type"] == "introduction":
-            await msg.edit_text("MEI MEI by L1xky – API & automation assistant.")
+            await msg.edit_text("MEI MEI by L1xky â API & automation assistant.")
             return
 
         if intent["type"] != "website_analysis":
@@ -308,7 +327,7 @@ async def handle_message(m: Message):
 
         url = intent["url"]
 
-        await msg.edit_text("Launching browser & capturing traffic…")
+        await msg.edit_text("Launching browser & capturing trafficâ¦")
 
         raw_requests, raw_responses = await browser_capture(url)
 
@@ -334,7 +353,7 @@ async def handle_message(m: Message):
             experience
         )
 
-        await msg.edit_text("Running deep analysis…")
+        await msg.edit_text("Running deep analysisâ¦")
 
         start = time.time()
         result = await run_ollama(prompt, "", MAX_TIMEOUT)
@@ -354,7 +373,9 @@ async def handle_message(m: Message):
         await msg.edit_text(str(e))
 
 
-# -------------------- WEBHOOK SERVER --------------------
+# -------------------------------------------------
+# WEBHOOK
+# -------------------------------------------------
 
 async def on_startup(app):
     path = f"/webhook/{TELEGRAM_BOT_TOKEN}"
@@ -364,7 +385,7 @@ async def on_startup(app):
 
 async def handle_webhook(request: web.Request):
     data = await request.json()
-    update = dp.update_class(**data)
+    update = Update.model_validate(data)
     await dp.feed_update(bot, update)
     return web.Response(text="OK")
 
