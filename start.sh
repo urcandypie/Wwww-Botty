@@ -18,7 +18,7 @@ $OLLAMA_BIN serve &
 sleep 10
 
 echo "📥 Pulling model..."
-$OLLAMA_BIN pull qwen2.5-coder:32b
+OLLAMA_MODEL = "qwen2.5-coder:7b"
 
 echo "🤖 Starting Telegram bot..."
 python3 /app/main.py
