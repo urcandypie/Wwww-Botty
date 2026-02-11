@@ -7,17 +7,10 @@ startCommand = "./start.sh"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 3
 
-[[services]]
+[services]
 name = "mei-mei-bot"
 
 [services.resources]
-memory = 32768  # 32GB RAM
-cpu = 8000      # 8 vCPU
-disk = 65536    # 64GB disk space
-
-# Add health check
-[services.healthcheck]
-interval = 60
-timeout = 30
-retries = 3
-startPeriod = 180
+memory = 32768
+cpu = 8
+disk = 65536
