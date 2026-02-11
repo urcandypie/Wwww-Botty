@@ -331,7 +331,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_name = document.file_name
     caption = update.message.caption or ""
     
-    msg = await update.message.reply_text(f"<b>Learning from File</b>\n\n<b>File:</b> <code>{file_name}</code>\n<i>Analyzing...</i>", parse_mode=ParseMode.HTML)
+    msg = await update.message.reply_text(
+        f"<b>Learning from File</b>\n\n<b>File:</b> <code>{file_name}</code>\n<i>Analyzing...</i>",
+        parse_mode=ParseMode.HTML
+    )
     
     try:
         start_time = time.time()
@@ -342,11 +345,61 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
-        # ✅ FIXED: properly closed triple‑quoted f‑string
-        prompt = f'''Analyze this code file:
 
-File: {file_name}
+        # ✅ SAFE STRING (No syntax break possible)
+        prompt = f"""Analyze this code file carefully.
+
+File Name: {file_name}
 User Request: {caption if caption else "Complete analysis"}
 
-Content:
+CODE CONTENT:
+{content[:8000]}
+
+TASK:
+1. Explain what this code does
+2. Find bugs and issues
+3. Improve performance
+4. Provide FULLY FIXED working version
+5. Optimize for production use
+
+Generate complete corrected code.
+"""
+
+        system_prompt = """You are MEI MEI - Expert Python Debugger by L1xky.
+Return:
+- Clear explanation
+- Then full corrected production-ready code
+Use proper formatting and code blocks."""
+
+        response = await ollama_api_call(prompt, system_prompt, 300)
+
+        end_time = time.time()
+        time_taken = end_time - start_time
+
+        await msg.delete()
+
+        formatted = f"""{response}
+
+<i>Analysis time: {time_taken:.2f}s • Model: {OLLAMA_MODEL}</i>"""
+
+        if len(formatted) > 4000:
+            chunks = [formatted[i:i+4000] for i in range(0, len(formatted), 4000)]
+            for chunk in chunks:
+                await update.message.reply_text(
+                    chunk,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True
+                )
+        else:
+            await update.message.reply_text(
+                formatted,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True
+            )
+
+    except Exception as e:
+        logger.error(f"Document error: {e}")
+        await msg.edit_text(
+            f"<b>Error:</b> <code>{str(e)[:400]}</code>",
+            parse_mode=ParseMode.HTML
+        )
