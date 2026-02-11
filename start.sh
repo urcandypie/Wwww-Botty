@@ -1,45 +1,51 @@
 #!/bin/bash
 
-set -e  # Exit on any error
+set -e
 
-echo "🚀 Starting MEI MEI with 32GB RAM..."
+echo "🚀 Starting MEI MEI (32GB Mode)"
 
-# Function to check Ollama health
+# =========================
+# Check Ollama Health
+# =========================
 check_ollama() {
-    for i in {1..10}; do
-        if curl -s http://localhost:11434/api/tags > /dev/null; then
-            echo "✅ Ollama is ready!"
-            return 0
-        fi
-        sleep 3
+    echo "⏳ Waiting for Ollama to become ready..."
+    until curl -s http://localhost:11434/api/tags > /dev/null; do
+        sleep 2
     done
-    echo "❌ Ollama failed to start"
-    return 1
+    echo "✅ Ollama is ready!"
 }
 
+# =========================
 # Start Ollama
-echo "▶️ Starting Ollama service..."
-ollama serve &
+# =========================
+echo "▶️ Starting Ollama..."
+ollama serve > /dev/null 2>&1 &
 
-# Wait for Ollama
-check_ollama || exit 1
+# Wait until Ollama is fully up
+check_ollama
 
-# Pull model
-echo "📥 Pulling Qwen 2.5 Coder 14B model..."
-ollama pull qwen2.5-coder:14b || {
-    echo "❌ Failed to pull model, trying smaller model..."
-    ollama pull qwen2.5-coder:7b
-}
+# =========================
+# Pull Model (Only if missing)
+# =========================
+MODEL="qwen2.5-coder:14b"
 
-# List models
+if ! ollama list | grep -q "$MODEL"; then
+    echo "📥 Pulling $MODEL..."
+    ollama pull $MODEL
+else
+    echo "✅ Model already exists."
+fi
+
 echo "📋 Available models:"
-ollama list || curl -s http://localhost:11434/api/tags
+ollama list
 
-# Start bot with error handling
+# =========================
+# Start Bot (Auto Restart)
+# =========================
 echo "🚀 Starting MEI MEI bot..."
+
 while true; do
-    python3 main.py || {
-        echo "⚠️ Bot crashed, restarting in 5 seconds..."
-        sleep 5
-    }
+    python3 main.py
+    echo "⚠️ Bot crashed. Restarting in 5 seconds..."
+    sleep 5
 done
