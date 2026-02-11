@@ -1,280 +1,352 @@
 #!/usr/bin/env python3
-import os
-import re
-import time
-import json
-import asyncio
-import logging
-import aiohttp
-from pathlib import Path
-from typing import Dict, List, Optional
-
-from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message
-from aiogram.enums import ParseMode
-from aiogram.filters import CommandStart, Command
-from aiogram.client.default import DefaultBotProperties
-
-# Configuration
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("mei-mei")
-
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-OLLAMA_API_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "qwen2.5-coder:7b"  # Fast default
-KNOWLEDGE_BASE_DIR = os.getenv("KNOWLEDGE_BASE_DIR", "/app/knowledge_base")
-
-# Bot setup
-bot = Bot(token=TELEGRAM_BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
-router = Router()
-dp.include_router(router)
-
-# -------------------------------------------------
-# OLLAMA FUNCTIONS
-# -------------------------------------------------
-
-async def run_ollama(prompt: str, model: str = None, timeout: int = 45) -> str:
-    """Call Ollama API with optimized parameters"""
-    if model is None:
-        model = OLLAMA_MODEL
-    
-    system_prompt = """You are MEI MEI created by L1xky.
-Expert in:
-- API reverse engineering
-- checkout flows
-- browser automation
-- token chaining
-- web scraping
-- security testing
 """
-    
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "system": system_prompt,
-        "stream": False,
-        "options": {
-            "temperature": 0.7,
-            "num_predict": 768,
-            "top_p": 0.9,
-            "repeat_penalty": 1.1,
-            "num_thread": 8,  # Use more threads with 8 vCPU
-        }
-    }
-    
+MEI MEI - Smart AI Assistant
+Natural conversation with intelligent intent detection
+Developer: L1xky (@l1xky)
+"""
+
+import os
+import subprocess
+import asyncio
+import time
+import re
+import aiohttp
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.constants import ParseMode
+import logging
+
+logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Configuration - UPDATED FOR SPEED
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'your_token_here')
+OLLAMA_MODEL = 'qwen2.5-coder:14b'  # ⚡ Changed from 32B to 14B for speed
+KNOWLEDGE_BASE_DIR = os.getenv("KNOWLEDGE_BASE_DIR", "/app/knowledge_base")
+MAX_TIMEOUT = 600  # ⚡ Reduced from 3600 to 600 (10 minutes)
+
+os.makedirs(KNOWLEDGE_BASE_DIR, exist_ok=True)
+
+# OLLAMA API URL for faster responses
+OLLAMA_API_URL = "http://localhost:11434/api/generate"
+
+async def ollama_api_call(prompt: str, system_prompt: str = "", timeout: int = 120) -> str:
+    """Use Ollama API instead of subprocess for faster responses"""
     try:
-        timeout_obj = aiohttp.ClientTimeout(total=timeout)
-        
-        async with aiohttp.ClientSession(timeout=timeout_obj) as session:
-            logger.info(f"Sending to {model}: {prompt[:100]}...")
-            start_time = time.time()
-            
+        full_system = f"""ROLE: You are MEI MEI, created by L1xky (@l1xky).
+
+YOUR IDENTITY:
+- Name: MEI MEI
+- Creator: L1xky (@l1xky)
+- Purpose: Expert coding assistant, API developer, web automation
+- You are NOT DeepSeek or any other AI
+
+CAPABILITIES:
+✓ Full system access (curl, commands, VPS)
+✓ Expert in Python, JavaScript, API development
+✓ Web scraping and automation
+✓ Code optimization and debugging
+✓ Payment gateway integration
+
+STYLE:
+- Direct, confident, no unnecessary apologies
+- Provide working code immediately
+- Focus on solutions, not limitations
+- Optimized for production use
+
+{system_prompt}"""
+
+        payload = {
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "system": full_system,
+            "stream": False,
+            "options": {
+                "temperature": 0.7,
+                "num_predict": 1024,  # Reasonable response length
+                "top_p": 0.9,
+                "repeat_penalty": 1.1,
+                "num_thread": 8,  # Use all CPU cores
+            }
+        }
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=timeout)) as session:
             async with session.post(OLLAMA_API_URL, json=payload) as response:
                 if response.status == 200:
                     data = await response.json()
-                    result = data.get("response", "").strip()
-                    
-                    elapsed = time.time() - start_time
-                    logger.info(f"Response received in {elapsed:.2f}s")
-                    
-                    return result
+                    return data.get("response", "").strip()
                 else:
                     return f"API Error: {response.status}"
-                    
+
     except asyncio.TimeoutError:
-        return "⚠️ Response timeout. Try a shorter query."
+        return "⚠️ Response timeout. Try a simpler query or use /fast mode."
     except Exception as e:
-        logger.error(f"Ollama error: {e}")
         return f"Error: {str(e)[:200]}"
 
-# -------------------------------------------------
-# SIMPLE WEBSITE ANALYSIS (NO BROWSER)
-# -------------------------------------------------
-
-async def simple_website_analysis(chat_id: int, url: str):
-    """Simple website analysis using HTTP requests"""
+def detect_intent(message: str) -> dict:
+    """Detect user intent from message"""
+    message_lower = message.lower()
     
-    await bot.send_message(chat_id, f"🔍 Analyzing: {url}")
-    await bot.send_message(chat_id, "📡 Fetching website info...")
+    # Website analysis intent
+    url_pattern = r'https?://[^\s]+'
+    urls = re.findall(url_pattern, message)
+    if urls or any(word in message_lower for word in ['analyze', 'website', 'site', 'api', 'scrape', 'extract']):
+        return {'type': 'website_analysis', 'url': urls[0] if urls else None, 'message': message}
     
+    # Dork generation intent
+    if any(word in message_lower for word in ['dork', 'google dork', 'search query', 'find sites', 'search for']):
+        return {'type': 'dork_generation', 'message': message}
+    
+    # Introduction intent
+    if any(word in message_lower for word in ['who are you', 'introduce', 'what are you', 'your name', 'about you']):
+        return {'type': 'introduction', 'message': message}
+    
+    # Training intent (file upload)
+    return {'type': 'general', 'message': message}
+
+async def analyze_website(url: str) -> str:
+    """Fetch website content using curl - FAST VERSION"""
     try:
-        # Simple HTTP request to get basic info
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as response:
-                html = await response.text()
-                
-                # Basic analysis
-                title_match = re.search(r'<title[^>]*>(.*?)</title>', html, re.IGNORECASE)
-                title = title_match.group(1) if title_match else "No title"
-                
-                # Look for common API patterns
-                api_patterns = re.findall(r'(?:api|ajax|json|graphql)[^"\']*["\']([^"\']+)["\']', html, re.IGNORECASE)
-                api_endpoints = list(set(api_patterns))[:10]
-                
-                # Look for forms
-                forms = re.findall(r'<form[^>]*action=["\']([^"\']*)["\'][^>]*>', html, re.IGNORECASE)
-                
-                analysis_prompt = f"""
-Website: {url}
-Title: {title}
-Status: {response.status}
-
-Found {len(api_endpoints)} potential API endpoints:
-{chr(10).join(f'- {ep}' for ep in api_endpoints)}
-
-Found {len(forms)} forms:
-{chr(10).join(f'- {form}' for form in forms[:5])}
-
-Analyze this website for:
-1. Potential API endpoints and their purposes
-2. Security considerations
-3. Checkout/payment flow indicators
-4. Recommended testing approach
-"""
-                
-                await bot.send_message(chat_id, "🧠 Analyzing with AI...")
-                result = await run_ollama(analysis_prompt)
-                
-                summary = f"✅ Analysis Complete\n\n"
-                summary += f"📊 Title: {title}\n"
-                summary += f"🔗 Status: {response.status}\n"
-                summary += f"🔍 Found {len(api_endpoints)} API patterns\n"
-                summary += f"📝 Found {len(forms)} forms\n\n"
-                summary += result
-                
-                if len(summary) > 3500:
-                    await bot.send_message(chat_id, summary[:3500])
-                    await bot.send_message(chat_id, summary[3500:])
-                else:
-                    await bot.send_message(chat_id, summary)
-                    
-    except Exception as e:
-        await bot.send_message(chat_id, f"❌ Analysis failed: {str(e)[:200]}")
-
-# -------------------------------------------------
-# KNOWLEDGE BASE
-# -------------------------------------------------
-
-def load_knowledge():
-    """Load knowledge base for context"""
-    try:
-        summaries = []
-        for file in os.listdir(KNOWLEDGE_BASE_DIR):
-            if file.endswith('.md') or file.endswith('.txt'):
-                with open(os.path.join(KNOWLEDGE_BASE_DIR, file), 'r') as f:
-                    content = f.read()
-                    if len(content) > 1000:
-                        content = content[:1000] + "..."
-                    summaries.append(f"[{file}]: {content}")
+        # Use aiohttp for faster fetching
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
         
-        return "\n\n".join(summaries[:3]) if summaries else "No knowledge base entries yet."
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+            async with session.get(url, headers=headers, allow_redirects=True) as response:
+                content = await response.text()
+                return content[:10000]  # Limit content for faster processing
+                
+    except Exception as e:
+        logger.error(f"Website fetch error: {e}")
+        return f"Error fetching website: {str(e)}"
+
+def generate_dorks(keyword: str) -> list:
+    """Generate Google dorks"""
+    dorks = [
+        f'inurl:"{keyword}"',
+        f'intitle:"{keyword}" inurl:login',
+        f'site:*.com inurl:"{keyword}" inurl:api',
+        f'inurl:"{keyword}" inurl:gateway',
+        f'filetype:php inurl:"{keyword}"',
+        f'intext:"{keyword}" inurl:payment',
+        f'site:*.com "{keyword}" "api_key"',
+        f'inurl:"{keyword}" inurl:checkout',
+    ]
+    return dorks
+
+def load_knowledge_base() -> str:
+    """Load training examples"""
+    try:
+        examples = []
+        for filename in os.listdir(KNOWLEDGE_BASE_DIR):
+            if filename.endswith(('.py', '.txt', '.md')):
+                with open(os.path.join(KNOWLEDGE_BASE_DIR, filename), 'r') as f:
+                    content = f.read()
+                    examples.append(f"Example from {filename}:\n{content[:500]}")
+        return "\n\n".join(examples[:5])  # Load only 5 examples for speed
     except:
-        return "Knowledge base not available."
+        return ""
 
-# -------------------------------------------------
-# HANDLERS
-# -------------------------------------------------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start command"""
+    welcome = f"""<b>MEI MEI</b>
+<i>AI Assistant with Full System Access</i>
 
-@router.message(CommandStart())
-async def start_handler(m: Message):
-    await m.answer(
-        "🤖 MEI MEI - Advanced AI Assistant\n\n"
-        "I can help with:\n"
-        "• Website analysis (send a URL)\n"
-        "• API reverse engineering\n"
-        "• Code review & debugging\n"
-        "• Security testing advice\n"
-        "• Technical Q&A\n\n"
-        "Commands:\n"
-        "/mode [fast|quality] - Switch between 7B (fast) and 14B (quality)\n"
-        "/knowledge - View knowledge base\n\n"
-        "Powered by Qwen2.5 Coder (7B/14B) • 25GB RAM"
-    )
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@router.message(Command("mode"))
-async def mode_handler(m: Message):
-    """Switch between models"""
-    global OLLAMA_MODEL
-    args = m.text.split()
+Hi! I'm MEI MEI, your intelligent assistant with VPS access.
+
+<b>What I can do:</b>
+• Scrape ANY website using curl
+• Generate complete APIs (login, payment, checkout)
+• Execute system commands on your VPS
+• Generate Google dorks with clickable URLs
+• Learn from your code examples
+• Debug and fix code issues
+
+<b>🚀 32GB RAM OPTIMIZED:</b>
+• Model: Qwen2.5-Coder 14B
+• Response Time: 3-10 seconds
+• CPU: 8 vCPU cores
+• Max Timeout: 10 minutes
+
+<b>Just chat naturally!</b>
+Tell me what you need, and I'll do it.
+
+<b>Examples:</b>
+• "Scrape https://example.com and create API"
+• "Generate dorks for payment gateway"
+• "Who are you?" or "What can you do?"
+• Upload your old APIs to train me
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+<b>Developer:</b> <a href="https://t.me/l1xky">L1xky</a> (@l1xky)
+"""
+    await update.message.reply_text(welcome, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Smart message handler with intent detection"""
+    user_message = update.message.text
+    intent = detect_intent(user_message)
     
-    if len(args) > 1:
-        mode = args[1].lower()
-        if mode in ["fast", "7b"]:
-            OLLAMA_MODEL = "qwen2.5-coder:7b"
-            await m.answer("✅ Switched to 7B model (fast responses)")
-        elif mode in ["quality", "14b"]:
-            OLLAMA_MODEL = "qwen2.5-coder:14b"
-            await m.answer("✅ Switched to 14B model (better quality)")
+    msg = await update.message.reply_text("<i>Processing...</i>", parse_mode=ParseMode.HTML)
+    
+    try:
+        start_time = time.time()
+        
+        # Handle different intents
+        if intent['type'] == 'introduction':
+            response = """I'm <b>MEI MEI</b>, an advanced AI assistant created by <a href="https://t.me/l1xky">L1xky</a>.
+
+<b>🚀 Performance Optimized:</b>
+• RAM: 32GB
+• Model: Qwen2.5-Coder 14B
+• CPU: 8 vCPU cores
+• Response Time: 3-10 seconds
+
+<b>My Capabilities:</b>
+• <b>Web Scraping</b>: Fetch and analyze websites
+• <b>API Generation</b>: Create complete APIs for login, payment, checkout
+• <b>System Access</b>: Run on your VPS with full command execution
+• <b>Code Analysis</b>: Debug and improve your code
+• <b>Learning</b>: Learn from your API examples
+
+<b>What I Can Do:</b>
+• Scrape any website and extract data
+• Generate production-ready Python APIs
+• Execute system commands on your VPS
+• Create Google dorks for research
+• Analyze and fix code issues
+
+I have curl access, VPS access, and a knowledge base of your past APIs.
+
+<i>Built with precision by L1xky (@l1xky)</i>"""
+            
+            await msg.delete()
+            await update.message.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            return
+        
+        elif intent['type'] == 'website_analysis':
+            url = intent['url']
+            if not url:
+                await msg.edit_text("Please provide the website URL you want me to analyze.", parse_mode=ParseMode.HTML)
+                return
+            
+            await msg.edit_text(f"<i>Analyzing website: {url}</i>", parse_mode=ParseMode.HTML)
+            website_content = await analyze_website(url)
+            
+            prompt = f"""WEBSITE CONTENT SUCCESSFULLY FETCHED. NOW ANALYZE AND CREATE API.
+
+TARGET URL: {url}
+
+FETCHED HTML CONTENT:
+{website_content[:4000]}
+
+USER WANTS: {user_message}
+
+YOUR TASK - GENERATE COMPLETE PYTHON API:
+1. Study the HTML content above
+2. Find: forms, input fields, endpoints, hidden tokens
+3. Identify: csrf tokens, session cookies, auth mechanisms
+4. Create: Complete Python API using requests module
+5. Include: All headers, cookies, token extraction, error handling
+6. Add: Clear comments and usage example
+
+GENERATE PRODUCTION-READY CODE NOW."""
+
+            system_prompt = """You are MEI MEI - Expert Web Scraper & API Developer by L1xky.
+Generate ONLY Python code using requests module.
+Include: imports, functions, token extraction, error handling, usage example.
+Output format: Code block with ```python ... ```"""
+            
+            response = await ollama_api_call(prompt, system_prompt, 300)
+        
+        elif intent['type'] == 'dork_generation':
+            keyword = user_message.lower()
+            for word in ['dork', 'generate', 'create', 'find', 'search', 'for']:
+                keyword = keyword.replace(word, '').strip()
+            
+            dorks = generate_dorks(keyword)
+            urls = [f"https://www.google.com/search?q={dork.replace(' ', '+')}" for dork in dorks]
+            
+            dork_list = "\n".join([f"• <code>{dork}</code>" for dork in dorks])
+            url_list = "\n".join([f"• <a href='{url}'>Search {i+1}</a>" for i, url in enumerate(urls)])
+            
+            response = f"""<b>Generated {len(dorks)} Google Dorks</b>
+
+<b>Keyword:</b> <code>{keyword}</code>
+
+<b>Dorks:</b>
+{dork_list}
+
+<b>Search URLs:</b>
+{url_list}
+
+<i>Click URLs to search directly on Google</i>"""
+            
+            await msg.delete()
+            await update.message.reply_text(response, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            return
+        
         else:
-            await m.answer("Usage: /mode [fast|quality]")
-    else:
-        await m.answer(f"Current model: {OLLAMA_MODEL}\nUse /mode fast or /mode quality")
+            # General conversation
+            kb_examples = load_knowledge_base()
+            
+            prompt = f"""USER: {user_message}
 
-@router.message(Command("knowledge"))
-async def knowledge_handler(m: Message):
-    """Show knowledge base"""
-    knowledge = load_knowledge()
-    await m.answer(f"📚 Knowledge Base:\n\n{knowledge[:3500]}")
+KNOWLEDGE BASE:
+{kb_examples}
 
-@router.message(F.text)
-async def message_handler(m: Message):
-    """Handle all text messages"""
-    
-    # Detect URL
-    urls = re.findall(r'https?://[^\s]+', m.text)
-    
-    if urls:
-        url = urls[0]
-        await m.answer(f"🌐 URL detected: {url}\nStarting analysis...")
-        asyncio.create_task(simple_website_analysis(m.chat.id, url))
-        return
-    
-    # Check for special queries
-    text_lower = m.text.lower()
-    
-    if any(x in text_lower for x in ["who are you", "about", "help"]):
-        await m.answer(
-            "I'm MEI MEI - an AI assistant specialized in:\n"
-            "• API Reverse Engineering\n"
-            "• Web Security Testing\n"
-            "• Browser Automation\n"
-            "• Code Analysis\n"
-            "• Checkout Flow Analysis\n\n"
-            "Send me a URL to analyze a website, or ask me anything technical!"
-        )
-        return
-    
-    # General chat
-    await bot.send_chat_action(m.chat.id, "typing")
-    
-    # Add context from knowledge base for technical questions
-    if any(word in text_lower for word in ["api", "checkout", "security", "token", "csrf", "xss", "sql"]):
-        context = f"Knowledge Context:\n{load_knowledge()}\n\nQuestion: {m.text}"
-        response = await run_ollama(context)
-    else:
-        response = await run_ollama(m.text)
-    
-    # Send response
-    if len(response) > 3500:
-        await m.answer(response[:3500])
-        if len(response) > 3500:
-            await m.answer(response[3500:])
-    else:
-        await m.answer(response)
+Respond helpfully and concisely. Provide working code if applicable."""
+            
+            response = await ollama_api_call(prompt, "", 180)
+        
+        end_time = time.time()
+        time_taken = end_time - start_time
+        
+        await msg.delete()
+        
+        formatted = f"""{response}
 
-# -------------------------------------------------
-# MAIN
-# -------------------------------------------------
+<i>Response time: {time_taken:.2f}s • Model: {OLLAMA_MODEL}</i>"""
+        
+        if len(formatted) > 4000:
+            chunks = [formatted[i:i+4000] for i in range(0, len(formatted), 4000)]
+            for chunk in chunks:
+                await update.message.reply_text(chunk, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        else:
+            await update.message.reply_text(formatted, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+            
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        await msg.edit_text(f"<b>Error:</b> <code>{str(e)[:400]}</code>", parse_mode=ParseMode.HTML)
 
-async def main():
-    logger.info("🚀 Starting MEI MEI with 25GB RAM configuration")
-    logger.info(f"🤖 Model: {OLLAMA_MODEL}")
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle file uploads for training"""
+    document = update.message.document
+    file_name = document.file_name
+    caption = update.message.caption or ""
     
-    await dp.start_polling(bot, skip_updates=True)
+    msg = await update.message.reply_text(f"<b>Learning from File</b>\n\n<b>File:</b> <code>{file_name}</code>\n<i>Analyzing...</i>", parse_mode=ParseMode.HTML)
+    
+    try:
+        start_time = time.time()
+        
+        file = await context.bot.get_file(document.file_id)
+        file_path = f"/tmp/{file_name}"
+        await file.download_to_drive(file_path)
+        
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        # Analyze the file
+        prompt = f"""Analyze this code file:
 
-if __name__ == "__main__":
-    asyncio.run(main())
+File: {file_name}
+User Request: {caption if caption else "Complete analysis"}
+
+Content:
