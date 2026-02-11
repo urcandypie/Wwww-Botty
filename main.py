@@ -343,7 +343,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
         
-        # Analyze the file
+        # ✅ FIXED: properly closed triple‑quoted f‑string
         prompt = f'''Analyze this code file:
 
 File: {file_name}
