@@ -4,7 +4,7 @@ WORKDIR /app
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Python and system dependencies
+# Install Python and system dependencies (ADD zstd HERE)
 RUN apt-get update && apt-get install -y \
     python3.11 \
     python3-pip \
@@ -15,9 +15,10 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     libssl-dev \
     libffi-dev \
+    zstd \        # ← ADD THIS LINE
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama
+# Install Ollama (NOW IT WILL WORK)
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
 # Copy requirements
