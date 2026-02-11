@@ -13,7 +13,6 @@ from aiogram.enums import ParseMode
 from aiogram.filters import CommandStart
 from aiogram.client.default import DefaultBotProperties
 
-from aiohttp import web
 from playwright.async_api import async_playwright
 
 
@@ -25,8 +24,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("mei-mei")
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-WEBHOOK_URL = os.environ["WEBHOOK_URL"]
-PORT = int(os.environ.get("PORT", 8080))
 
 OLLAMA_MODEL = "qwen2.5-coder:7b"
 
@@ -355,31 +352,13 @@ async def handle_message(m: Message):
 
 
 # -------------------------------------------------
-# WEBHOOK
+# POLLING MAIN
 # -------------------------------------------------
 
-async def on_startup(app):
-    path = f"/webhook/{TELEGRAM_BOT_TOKEN}"
-    await bot.set_webhook(f"{WEBHOOK_URL}{path}")
-    logger.info("Webhook set")
-
-
-async def handle_webhook(request: web.Request):
-    data = await request.json()
-    update = Update.model_validate(data)
-    await dp.feed_update(bot, update)
-    return web.Response(text="OK")
-
-
-def main():
-    app = web.Application()
-    path = f"/webhook/{TELEGRAM_BOT_TOKEN}"
-
-    app.router.add_post(path, handle_webhook)
-    app.on_startup.append(on_startup)
-
-    web.run_app(app, host="0.0.0.0", port=PORT)
+async def main():
+    logger.info("Starting bot in polling mode...")
+    await dp.start_polling(bot)
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
