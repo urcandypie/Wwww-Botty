@@ -1,40 +1,32 @@
-FROM ubuntu:22.04
+FROM python:3.11
+
+# Install system packages (including zstd support)
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    zstd \
+    xz-utils \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama safely
+RUN curl -fsSL https://ollama.com/install.sh | sh
 
 WORKDIR /app
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install Python and system dependencies
-RUN apt-get update && apt-get install -y \
-    python3.11 \
-    python3-pip \
-    python3.11-dev \
-    curl \
-    wget \
-    git \
-    build-essential \
-    libssl-dev \
-    libffi-dev \
-    zstd \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install Ollama
-RUN curl -fsSL https://ollama.com/install.sh | sh
-
-# Copy requirements
+# Copy requirements first
 COPY requirements.txt .
 
-# Install Python packages
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy bot files
+# Copy project files
 COPY . .
 
-# Make start script executable
-RUN chmod +x start.sh
+EXPOSE 11434
 
-# Create knowledge base directory
-RUN mkdir -p /app/knowledge_base
-
-# Run the bot
-CMD ["./start.sh"]
+# Start Ollama + wait + pull model + start bot
+CMD bash -c "\
+ollama serve & \
+sleep 8 && \
+ollama pull qwen2.5:7b && \
+python main.py"
