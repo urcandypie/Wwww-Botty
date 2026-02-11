@@ -1,6 +1,6 @@
 FROM python:3.11
 
-# Install required system packages (zstd fix included)
+# Install system packages
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
@@ -14,18 +14,16 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 
 WORKDIR /app
 
-# Copy requirements first
+# Copy requirements
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project
+# Copy project files
 COPY . .
+
+# 🔥 ADD THIS LINE (VERY IMPORTANT)
+RUN chmod +x start.sh
 
 EXPOSE 11434
 
-# Start Ollama + Pull 7B + Start Bot
-CMD bash -c "\
-ollama serve & \
-sleep 6 && \
-ollama pull qwen2.5:7b && \
-python main.py"
+CMD ["./start.sh"]
