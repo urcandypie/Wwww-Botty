@@ -344,7 +344,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             content = f.read()
         
         # Analyze the file
-        prompt = f"""Analyze this code file:
+        prompt = f'''Analyze this code file:
 
 File: {file_name}
 User Request: {caption if caption else "Complete analysis"}
