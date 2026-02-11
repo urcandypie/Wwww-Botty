@@ -4,12 +4,21 @@ dockerfilePath = "Dockerfile"
 
 [deploy]
 startCommand = "./start.sh"
-restartPolicyType = "ON_FAILURE"
-restartPolicyMaxRetries = 3
+restartPolicyType = "ALWAYS"
+restartPolicyMaxRetries = 5
 
 [[services]]
 name = "mei-mei-bot"
+port = 8080
 
 [services.resources]
-memory = 32768  # 32GB RAM
+memory = 25600  # 25GB RAM (25600 MB)
 cpu = 8000      # 8 vCPU
+disk = 51200    # 50GB disk space
+
+# Health check
+[services.healthcheck]
+interval = 60
+timeout = 30
+retries = 3
+startPeriod = 180
