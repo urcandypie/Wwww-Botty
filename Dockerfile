@@ -1,6 +1,6 @@
 FROM python:3.11
 
-# Install system packages (including zstd support)
+# Install required system packages (zstd fix included)
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
@@ -9,24 +9,23 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Ollama safely
+# Install Ollama
 RUN curl -fsSL https://ollama.com/install.sh | sh
 
 WORKDIR /app
 
 # Copy requirements first
 COPY requirements.txt .
-
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy project files
+# Copy project
 COPY . .
 
 EXPOSE 11434
 
-# Start Ollama + wait + pull model + start bot
+# Start Ollama + Pull 7B + Start Bot
 CMD bash -c "\
 ollama serve & \
-sleep 8 && \
+sleep 6 && \
 ollama pull qwen2.5:7b && \
 python main.py"
