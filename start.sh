@@ -2,13 +2,15 @@
 
 set -e
 
-echo "🚀 Starting MEI MEI (32GB Mode)"
+echo "🚀 Starting MEI MEI (7B Mode)"
+
+MODEL="qwen2.5:7b"
 
 # =========================
-# Check Ollama Health
+# Wait for Ollama
 # =========================
 check_ollama() {
-    echo "⏳ Waiting for Ollama to become ready..."
+    echo "⏳ Waiting for Ollama..."
     until curl -s http://localhost:11434/api/tags > /dev/null; do
         sleep 2
     done
@@ -21,26 +23,23 @@ check_ollama() {
 echo "▶️ Starting Ollama..."
 ollama serve > /dev/null 2>&1 &
 
-# Wait until Ollama is fully up
 check_ollama
 
 # =========================
-# Pull Model (Only if missing)
+# Pull Model if Missing
 # =========================
-MODEL="qwen2.5-coder:14b"
-
 if ! ollama list | grep -q "$MODEL"; then
     echo "📥 Pulling $MODEL..."
     ollama pull $MODEL
 else
-    echo "✅ Model already exists."
+    echo "✅ $MODEL already installed."
 fi
 
 echo "📋 Available models:"
 ollama list
 
 # =========================
-# Start Bot (Auto Restart)
+# Start Bot (Auto Restart Loop)
 # =========================
 echo "🚀 Starting MEI MEI bot..."
 
